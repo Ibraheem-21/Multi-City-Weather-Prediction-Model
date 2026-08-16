@@ -1,0 +1,25 @@
+{
+  "city_id": "toronto",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 6724,
+  "test_rows": 1683,
+  "mse": 40.86863154765247,
+  "rmse": 6.3928578544851495,
+  "mae": 4.916431367423734,
+  "coefficients": {
+    "precip": -3.8721636270171804,
+    "temp_max": 0.5522497573429769,
+    "temp_min": 0.46231573480585303,
+    "month_day_max": 3.1699720744923674,
+    "max_min": 0.01088051646017358
+  },
+  "intercept": 2.5694288829762613,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}

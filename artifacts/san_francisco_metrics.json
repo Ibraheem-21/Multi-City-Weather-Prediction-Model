@@ -1,0 +1,25 @@
+{
+  "city_id": "san_francisco",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 18599,
+  "test_rows": 2048,
+  "mse": 18.42533360844626,
+  "rmse": 4.29247406613555,
+  "mae": 3.0652936573626577,
+  "coefficients": {
+    "precip": -1.8766955707575963,
+    "temp_max": 0.7413885045243384,
+    "temp_min": 0.2670071459052973,
+    "month_day_max": 9.898771631294606,
+    "max_min": 6.036112404339749
+  },
+  "intercept": -14.332586145958174,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}

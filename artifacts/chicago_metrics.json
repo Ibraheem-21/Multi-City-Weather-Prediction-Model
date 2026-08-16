@@ -1,0 +1,25 @@
+{
+  "city_id": "chicago",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 18599,
+  "test_rows": 2050,
+  "mse": 65.52675297046534,
+  "rmse": 8.094859663420072,
+  "mae": 6.249665170355247,
+  "coefficients": {
+    "precip": -4.084573157806901,
+    "temp_max": 0.725958838545784,
+    "temp_min": 0.24129296017133994,
+    "month_day_max": 0.010125827861157646,
+    "max_min": -0.006042532000260796
+  },
+  "intercept": 6.743909899700348,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}

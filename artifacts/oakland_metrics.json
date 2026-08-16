@@ -1,0 +1,25 @@
+{
+  "city_id": "oakland",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 16438,
+  "test_rows": 1392,
+  "mse": 20.743025600023543,
+  "rmse": 4.5544511853815655,
+  "mae": 3.323896739868374,
+  "coefficients": {
+    "precip": -1.7743204593838622,
+    "temp_max": 0.8346180373662214,
+    "temp_min": 0.12362978200108435,
+    "month_day_max": 13.17112541170748,
+    "max_min": 0.14237550095923088
+  },
+  "intercept": -8.741910618819048,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}

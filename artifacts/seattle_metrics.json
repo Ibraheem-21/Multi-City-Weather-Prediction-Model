@@ -1,0 +1,25 @@
+{
+  "city_id": "seattle",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 18599,
+  "test_rows": 2050,
+  "mse": 27.370696296676343,
+  "rmse": 5.231701090149966,
+  "mae": 4.107229876147337,
+  "coefficients": {
+    "precip": -1.8116605892891455,
+    "temp_max": 0.720502834262214,
+    "temp_min": 0.3435435409100145,
+    "month_day_max": 9.289518403739368,
+    "max_min": 5.033958208033422
+  },
+  "intercept": -14.678843790654916,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}

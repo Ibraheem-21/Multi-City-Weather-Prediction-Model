@@ -1,0 +1,25 @@
+{
+  "city_id": "new_york",
+  "predictors": [
+    "precip",
+    "temp_max",
+    "temp_min",
+    "month_day_max",
+    "max_min"
+  ],
+  "train_rows": 18599,
+  "test_rows": 2048,
+  "mse": 48.85761048330863,
+  "rmse": 6.98982192071505,
+  "mae": 5.450370565385928,
+  "coefficients": {
+    "precip": -2.384450473847383,
+    "temp_max": 0.7947009725670275,
+    "temp_min": 0.18358440789429645,
+    "month_day_max": 7.568918823971142,
+    "max_min": -0.009645766625738548
+  },
+  "intercept": -3.366164723634256,
+  "train_end": "2020-12-31",
+  "test_start": "2021-01-01"
+}
