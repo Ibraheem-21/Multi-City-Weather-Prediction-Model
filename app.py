@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 
 from src.cities import get_city, list_cities
 from src.data import load_city_weather
-from src.features import ENGINEERED_PREDICTORS, prediction_features_from_history
+from src.features import prediction_features_from_history
 from src.insights import (
     correlation_with_target,
     feature_importance_table,
@@ -121,12 +121,13 @@ def main() -> None:
     last = frame.iloc[-1]
     next_pred = predict_next_day(model, predictors, last)
     last_date = frame.index[-1]
-    rmse_display = convert_temp(metrics["rmse"], to_unit=unit) if unit == "C" else metrics["rmse"]
-    mae_display = convert_temp(metrics["mae"], to_unit=unit) if unit == "C" else metrics["mae"]
-    # RMSE/MAE are temperature deltas; convert as differences, not absolute temps.
+    # RMSE/MAE are temperature deltas; scale by 5/9 for °C (not absolute conversion).
     if unit == "C":
         rmse_display = metrics["rmse"] * 5.0 / 9.0
         mae_display = metrics["mae"] * 5.0 / 9.0
+    else:
+        rmse_display = metrics["rmse"]
+        mae_display = metrics["mae"]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Next-day TMAX forecast", display_temp(next_pred, unit))
