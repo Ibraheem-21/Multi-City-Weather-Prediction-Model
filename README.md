@@ -7,6 +7,8 @@ Predict tomorrow’s maximum temperature (°F) with Ridge regression across mult
 
 Included cities: Oakland, Toronto, San Francisco, New York, Chicago, Vancouver, Seattle.
 
+**Live demo:** [https://multi-city-weather-prediction-model.streamlit.app/](https://multi-city-weather-prediction-model.streamlit.app/)
+
 ## Quick start
 
 ```bash
@@ -29,6 +31,8 @@ python train.py --list
 ```
 
 ## Deploy demo (Streamlit Community Cloud)
+
+**Live app:** [https://multi-city-weather-prediction-model.streamlit.app/](https://multi-city-weather-prediction-model.streamlit.app/)
 
 1. Push this repo to GitHub (models/metrics/predictions under `artifacts/` are included for fast cold starts).
 2. Open [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
