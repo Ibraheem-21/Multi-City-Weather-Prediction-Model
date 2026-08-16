@@ -129,7 +129,10 @@ def load_artifacts(city_id: str) -> dict:
     bundle = joblib.load(paths["model"])
     metrics = json.loads(paths["metrics"].read_text(encoding="utf-8"))
     predictions = pd.read_csv(paths["predictions"], index_col=0, parse_dates=True)
-    frame = pd.read_csv(paths["frame"], index_col=0, parse_dates=True)
+    # Modeling frames are large and optional in deploy; rebuild from weather in the app.
+    frame = None
+    if paths["frame"].exists():
+        frame = pd.read_csv(paths["frame"], index_col=0, parse_dates=True)
     return {
         "model": bundle["model"],
         "predictors": bundle["predictors"],

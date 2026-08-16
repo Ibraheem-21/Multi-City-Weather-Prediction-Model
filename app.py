@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 
 from src.cities import get_city, list_cities
 from src.data import load_city_weather
-from src.features import prediction_features_from_history
+from src.features import prepare_modeling_frame, prediction_features_from_history
 from src.insights import (
     correlation_with_target,
     feature_importance_table,
@@ -115,6 +115,8 @@ def main() -> None:
     metrics = artifacts["metrics"]
     predictions = artifacts["predictions"]
     frame = artifacts["frame"]
+    if frame is None:
+        frame = prepare_modeling_frame(weather)
     model = artifacts["model"]
     predictors = artifacts["predictors"]
 
