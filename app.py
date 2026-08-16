@@ -31,6 +31,23 @@ st.set_page_config(
 )
 
 
+def f_to_c(value: float) -> float:
+    return (value - 32.0) * 5.0 / 9.0
+
+
+def c_to_f(value: float) -> float:
+    return value * 9.0 / 5.0 + 32.0
+
+
+def convert_temp(value: float, *, to_unit: str) -> float:
+    return f_to_c(value) if to_unit == "C" else value
+
+
+def display_temp(value_f: float, unit: str, digits: int = 1) -> str:
+    value = convert_temp(value_f, to_unit=unit)
+    return f"{value:.{digits}f} °{unit}"
+
+
 @st.cache_data(show_spinner=False)
 def cached_weather(city_id: str, refresh: bool) -> pd.DataFrame:
     return load_city_weather(city_id, refresh=refresh)
@@ -47,9 +64,10 @@ def ensure_trained(city_id: str, weather: pd.DataFrame) -> dict:
 def main() -> None:
     st.title("Multi-City Weather Model")
     st.caption(
-        "Ridge regression predicting tomorrow’s max temperature (°F) from today’s "
+        "Ridge regression predicting tomorrow’s max temperature from today’s "
         "conditions. Oakland uses the bundled airport CSV; other cities download "
-        "NOAA GHCN-Daily station history (Open-Meteo as fallback)."
+        "NOAA GHCN-Daily station history (Open-Meteo as fallback). "
+        "The model always trains in °F; the unit toggle only changes display."
     )
 
     cities = list_cities()
@@ -63,6 +81,12 @@ def main() -> None:
             options=list(labels.keys()),
             format_func=lambda x: labels[x],
             index=default_idx,
+        )
+        unit = st.radio(
+            "Temperature unit",
+            options=["F", "C"],
+            format_func=lambda u: "Fahrenheit (°F)" if u == "F" else "Celsius (°C)",
+            horizontal=False,
         )
         refresh = st.checkbox("Refresh remote weather data", value=False)
         if st.button("Retrain model", use_container_width=True):
@@ -97,11 +121,17 @@ def main() -> None:
     last = frame.iloc[-1]
     next_pred = predict_next_day(model, predictors, last)
     last_date = frame.index[-1]
+    rmse_display = convert_temp(metrics["rmse"], to_unit=unit) if unit == "C" else metrics["rmse"]
+    mae_display = convert_temp(metrics["mae"], to_unit=unit) if unit == "C" else metrics["mae"]
+    # RMSE/MAE are temperature deltas; convert as differences, not absolute temps.
+    if unit == "C":
+        rmse_display = metrics["rmse"] * 5.0 / 9.0
+        mae_display = metrics["mae"] * 5.0 / 9.0
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Next-day TMAX forecast", f"{next_pred:.1f} °F")
-    c2.metric("Test RMSE", f"{metrics['rmse']:.2f} °F")
-    c3.metric("Test MAE", f"{metrics['mae']:.2f} °F")
+    c1.metric("Next-day TMAX forecast", display_temp(next_pred, unit))
+    c2.metric("Test RMSE", f"{rmse_display:.2f} °{unit}")
+    c3.metric("Test MAE", f"{mae_display:.2f} °{unit}")
     c4.metric(
         "Data coverage",
         f"{weather.index.min().date()} → {weather.index.max().date()}",
@@ -109,8 +139,9 @@ def main() -> None:
 
     st.info(
         f"Forecast uses conditions from **{last_date.date()}** in {city.name} "
-        f"(precip={last['precip']:.2f} in, TMAX={last['temp_max']:.1f}°F, "
-        f"TMIN={last['temp_min']:.1f}°F)."
+        f"(precip={last['precip']:.2f} in, "
+        f"TMAX={display_temp(float(last['temp_max']), unit)}, "
+        f"TMIN={display_temp(float(last['temp_min']), unit)})."
     )
 
     tab_forecast, tab_perf, tab_insights, tab_history = st.tabs(
@@ -119,6 +150,14 @@ def main() -> None:
 
     with tab_forecast:
         st.subheader("What-if next-day forecast")
+        st.markdown(
+            "This tab lets you **simulate a different today** and ask: *if precip and "
+            "temperatures looked like this, what max temperature would the model "
+            "expect tomorrow?* It does not pull a live forecast from a weather service — "
+            "it scores your hypothetical inputs with the trained Ridge model. "
+            "Engineered features (`month_day_max`, `max_min`) are rebuilt from recent "
+            "history plus your overrides."
+        )
         col_a, col_b, col_c = st.columns(3)
         precip = col_a.number_input(
             "Precip (inches)",
@@ -127,53 +166,80 @@ def main() -> None:
             value=float(last["precip"]),
             step=0.05,
         )
-        temp_max = col_b.number_input(
-            "Today TMAX (°F)",
-            min_value=-40.0,
-            max_value=130.0,
-            value=float(last["temp_max"]),
-            step=0.5,
+
+        default_tmax = convert_temp(float(last["temp_max"]), to_unit=unit)
+        default_tmin = convert_temp(float(last["temp_min"]), to_unit=unit)
+        if unit == "C":
+            tmax_bounds = (-40.0, 55.0)
+            tmin_bounds = (-45.0, 40.0)
+            step = 0.5
+        else:
+            tmax_bounds = (-40.0, 130.0)
+            tmin_bounds = (-50.0, 100.0)
+            step = 0.5
+
+        temp_max_input = col_b.number_input(
+            f"Today TMAX (°{unit})",
+            min_value=tmax_bounds[0],
+            max_value=tmax_bounds[1],
+            value=float(round(default_tmax, 2)),
+            step=step,
         )
-        temp_min = col_c.number_input(
-            "Today TMIN (°F)",
-            min_value=-50.0,
-            max_value=100.0,
-            value=float(last["temp_min"]),
-            step=0.5,
+        temp_min_input = col_c.number_input(
+            f"Today TMIN (°{unit})",
+            min_value=tmin_bounds[0],
+            max_value=tmin_bounds[1],
+            value=float(round(default_tmin, 2)),
+            step=step,
         )
+
+        temp_max_f = c_to_f(temp_max_input) if unit == "C" else temp_max_input
+        temp_min_f = c_to_f(temp_min_input) if unit == "C" else temp_min_input
 
         window = weather.tail(40).copy()
         window.loc[window.index[-1], "precip"] = precip
-        window.loc[window.index[-1], "temp_max"] = temp_max
-        window.loc[window.index[-1], "temp_min"] = temp_min
+        window.loc[window.index[-1], "temp_max"] = temp_max_f
+        window.loc[window.index[-1], "temp_min"] = temp_min_f
         try:
             row = prediction_features_from_history(window)
             custom_pred = predict_next_day(model, predictors, row)
-            st.metric("Predicted next-day TMAX", f"{custom_pred:.1f} °F")
-            st.dataframe(
-                pd.DataFrame(
-                    {name: [float(row[name])] for name in ENGINEERED_PREDICTORS}
-                ),
-                use_container_width=True,
+            st.metric("Predicted next-day TMAX", display_temp(custom_pred, unit))
+            feature_view = {
+                "precip": [float(row["precip"])],
+                "temp_max": [convert_temp(float(row["temp_max"]), to_unit=unit)],
+                "temp_min": [convert_temp(float(row["temp_min"]), to_unit=unit)],
+                "month_day_max": [float(row["month_day_max"])],
+                "max_min": [float(row["max_min"])],
+            }
+            st.caption(
+                f"Model features for this scenario "
+                f"(temps shown in °{unit}; ratios stay unitless)."
             )
+            st.dataframe(pd.DataFrame(feature_view), use_container_width=True)
         except ValueError as exc:
             st.warning(str(exc))
 
     with tab_perf:
         st.subheader("Actual vs predicted (held-out test)")
+        plot_preds = predictions.copy()
+        if unit == "C":
+            plot_preds["actual"] = plot_preds["actual"].map(f_to_c)
+            plot_preds["predictions"] = plot_preds["predictions"].map(f_to_c)
+            plot_preds["diff"] = (plot_preds["actual"] - plot_preds["predictions"]).abs()
+
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
-                x=predictions.index,
-                y=predictions["actual"],
+                x=plot_preds.index,
+                y=plot_preds["actual"],
                 name="Actual",
                 mode="lines",
             )
         )
         fig.add_trace(
             go.Scatter(
-                x=predictions.index,
-                y=predictions["predictions"],
+                x=plot_preds.index,
+                y=plot_preds["predictions"],
                 name="Predicted",
                 mode="lines",
             )
@@ -181,22 +247,25 @@ def main() -> None:
         fig.update_layout(
             height=420,
             margin=dict(l=20, r=20, t=30, b=20),
-            yaxis_title="TMAX (°F)",
+            yaxis_title=f"TMAX (°{unit})",
             legend=dict(orientation="h"),
         )
         st.plotly_chart(fig, use_container_width=True)
 
         left, right = st.columns(2)
         left.write("Largest absolute errors")
-        left.dataframe(worst_prediction_days(predictions, 10), use_container_width=True)
+        left.dataframe(worst_prediction_days(plot_preds, 10), use_container_width=True)
         right.write("Summary")
         right.json(
             {
                 "train_rows": metrics["train_rows"],
                 "test_rows": metrics["test_rows"],
                 "mse": round(metrics["mse"], 3),
-                "rmse": round(metrics["rmse"], 3),
-                "mae": round(metrics["mae"], 3),
+                "rmse_F": round(metrics["rmse"], 3),
+                "mae_F": round(metrics["mae"], 3),
+                "rmse_display": round(rmse_display, 3),
+                "mae_display": round(mae_display, 3),
+                "display_unit": unit,
                 "train_end": metrics["train_end"],
                 "test_start": metrics["test_start"],
             }
@@ -222,6 +291,10 @@ def main() -> None:
     with tab_history:
         st.subheader("Temperature history")
         hist = weather.tail(365 * 5).copy()
+        if unit == "C":
+            hist = hist.copy()
+            hist["temp_max"] = hist["temp_max"].map(f_to_c)
+            hist["temp_min"] = hist["temp_min"].map(f_to_c)
         fig_hist = go.Figure()
         fig_hist.add_trace(
             go.Scatter(x=hist.index, y=hist["temp_max"], name="TMAX", mode="lines")
@@ -232,7 +305,7 @@ def main() -> None:
         fig_hist.update_layout(
             height=400,
             margin=dict(l=20, r=20, t=30, b=20),
-            yaxis_title="°F",
+            yaxis_title=f"°{unit}",
             legend=dict(orientation="h"),
         )
         st.plotly_chart(fig_hist, use_container_width=True)
