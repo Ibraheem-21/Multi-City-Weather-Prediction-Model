@@ -1,48 +1,60 @@
-# Oakland CA Weather Prediction Model
+# Multi-City Weather Prediction Model
 
-This project analyzes weather data from the Oakland International Airport to predict daily maximum temperatures using historical weather patterns. The model leverages Ridge regression to forecast the next day's maximum temperature based on factors like precipitation and temperature history.
+Predict tomorrow’s maximum temperature (°F) with Ridge regression across multiple cities.
 
-## Project Structure
+- **Oakland** uses the bundled NOAA airport CSV in this repo
+- **Other cities** download [NOAA GHCN-Daily](https://www.ncei.noaa.gov/products/land-based-station/global-historical-climatology-network-daily) station history (Open-Meteo archive is the fallback)
 
-- **Data Preprocessing**: Handles missing data by forward-filling and setting precipitation to 0 where applicable.
-- **Feature Engineering**: Creates additional features such as monthly temperature averages and ratios of daily max and min temperatures.
-- **Model Training**: Trains a Ridge regression model with selected predictors to minimize mean squared error.
-- **Evaluation**: Measures model accuracy and visualizes predictions versus actual temperatures.
+Included cities: Oakland, Toronto, San Francisco, New York, Chicago, Vancouver, Seattle.
 
-## Data Description
+## Quick start
 
-The dataset (`WO1.csv`) includes daily weather observations with columns:
-- **DATE**: Date of observation
-- **PRCP**: Daily precipitation
-- **TMAX**: Maximum temperature
-- **TMIN**: Minimum temperature
-- Additional columns indicate various weather conditions (e.g., **WT01** for fog).
+```bash
+pip install -r requirements.txt
 
-## Requirements
+# Train all cities (downloads remote history on first run)
+python train.py
 
-- Python 3.x
-- Libraries:
-  - `pandas`
-  - `scikit-learn`
-  - `matplotlib`
+# Or train a subset
+python train.py --city oakland --city toronto
 
-## Usage
+# Launch the UI
+streamlit run app.py
+```
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-username/Oakland_CA_Weather_Model.git
-   cd Oakland_CA_Weather_Model
-   ```
+List cities:
 
-2. **Run the Notebook**: Open the notebook in Jupyter or Google Colab and execute the cells to load the dataset, preprocess data, and train the model.
+```bash
+python train.py --list
+```
 
-3. **Customize Predictors**: Adjust predictor variables in the `predictors` list to experiment with model accuracy.
+## What you get in the UI
 
-## Visualizations
+- **Next-day forecast** for the selected city
+- **What-if controls** for precip / TMAX / TMIN
+- **Test performance** (actual vs predicted, RMSE / MAE, worst misses)
+- **Insights** (coefficients, correlations)
+- **History** charts
 
-- Plots of temperature and precipitation trends over time.
-- Comparison plot of actual vs. predicted temperature values.
+## Project layout
 
-## Results
+| Path | Role |
+|------|------|
+| `Oakland_Weather.csv` | Bundled Oakland NOAA daily observations |
+| `src/` | Data loading, features, model, insights |
+| `train.py` | Train and save models under `artifacts/` |
+| `app.py` | Streamlit UI |
+| `data/` | Cached remote downloads |
+| `artifacts/` | Saved models, metrics, test predictions |
+| `Oakland_CA_Weather_Model.ipynb` | Original exploration notebook (runs locally) |
 
-The Ridge regression model’s coefficients and errors are displayed, providing insights into the predictive power of each feature.
+## Model notes
+
+- Target: next day’s `temp_max`
+- Features: `precip`, `temp_max`, `temp_min`, 30-day `month_day_max`, `max_min`
+- Train / test: through 2020 vs from 2021 onward
+- Units: °F and inches
+
+## Notebook
+
+Open `Oakland_CA_Weather_Model.ipynb` and run all cells. It reads `Oakland_Weather.csv` directly (no Colab upload).
