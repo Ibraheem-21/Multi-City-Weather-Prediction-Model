@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import calendar
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -14,14 +16,31 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.ai_assistant import (
+    SUGGESTED_QUESTIONS,
+    answer_with_rules,
+    generate_limitations_note,
+    generate_model_summary,
+)
+from src.model_card import (
+    FEATURE_DOCS,
+    MODEL_ALGORITHM,
+    MODEL_ALPHA,
+    TARGET_VARIABLE,
+    build_model_context,
+    load_all_city_metrics,
+)
 from src.cities import get_city, list_cities
 from src.data import load_city_weather
 from src.features import prepare_modeling_frame, prediction_features_from_history
 from src.insights import (
+    calendar_day_predictions,
     correlation_with_target,
     feature_importance_table,
     worst_prediction_days,
 )
+from src.llm_providers import auto_resolve_backend, chat_with_provider
+from src.prediction_explainer import explain_prediction
 from src.model import artifact_paths, load_artifacts, predict_next_day, train_city
 
 st.set_page_config(
@@ -123,6 +142,34 @@ def main() -> None:
     last = frame.iloc[-1]
     next_pred = predict_next_day(model, predictors, last)
     last_date = frame.index[-1]
+    model_ctx = build_model_context(
+        city,
+        weather,
+        metrics,
+        frame,
+        next_pred=next_pred,
+        last_row=last,
+        last_date=last_date,
+    )
+    all_metrics_df = load_all_city_metrics()
+    all_metrics_list = all_metrics_df.to_dict("records") if not all_metrics_df.empty else []
+
+    try:
+        streamlit_secrets = {k: st.secrets[k] for k in st.secrets}  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        streamlit_secrets = {}
+    provider_id, llm_key = auto_resolve_backend(streamlit_secrets)
+
+    explanation = explain_prediction(
+        model,
+        predictors,
+        last,
+        model_ctx,
+        provider_id=provider_id,
+        api_key=llm_key,
+        unit=unit,
+    )
+
     # RMSE/MAE are temperature deltas; scale by 5/9 for °C (not absolute conversion).
     if unit == "C":
         rmse_display = metrics["rmse"] * 5.0 / 9.0
@@ -147,8 +194,51 @@ def main() -> None:
         f"TMIN={display_temp(float(last['temp_min']), unit)})."
     )
 
-    tab_forecast, tab_perf, tab_insights, tab_history = st.tabs(
-        ["Forecast what-if", "Performance", "Insights", "History"]
+    with st.expander("Forecast insight", expanded=True):
+        band = explanation.confidence_band_f
+        if unit == "C":
+            band = band * 5.0 / 9.0
+        insight_text = explanation.rule_narrative
+        if explanation.ai_narrative:
+            insight_text = explanation.ai_narrative
+        st.markdown(insight_text)
+        st.caption(f"Typical error band ±{band:.1f} °{unit} (test MAE).")
+
+        contrib = pd.DataFrame(
+            {
+                "feature": list(explanation.feature_contributions.keys()),
+                "contribution_F": list(explanation.feature_contributions.values()),
+            }
+        )
+        if unit == "C":
+            contrib["contribution"] = contrib["contribution_F"] * 5.0 / 9.0
+            y_col = "contribution"
+        else:
+            contrib["contribution"] = contrib["contribution_F"]
+            y_col = "contribution"
+        fig_contrib = px.bar(
+            contrib,
+            x="feature",
+            y=y_col,
+            title=f"Ridge feature contributions to forecast (°{unit})",
+            labels={y_col: f"Contribution (°{unit})"},
+        )
+        st.plotly_chart(fig_contrib, use_container_width=True)
+        st.caption(
+            f"Intercept baseline: {explanation.intercept:.2f}°F · "
+            "Each bar = coefficient × feature value."
+        )
+
+    tab_forecast, tab_by_date, tab_perf, tab_insights, tab_history, tab_model, tab_ai = st.tabs(
+        [
+            "Forecast what-if",
+            "Predict by date",
+            "Performance",
+            "Insights",
+            "History",
+            "About the Model",
+            "Ask",
+        ]
     )
 
     with tab_forecast:
@@ -219,6 +309,91 @@ def main() -> None:
                 f"(temps shown in °{unit}; ratios stay unitless)."
             )
             st.dataframe(pd.DataFrame(feature_view), use_container_width=True)
+        except ValueError as exc:
+            st.warning(str(exc))
+
+    with tab_by_date:
+        st.subheader("Predict by calendar day (e.g. June 25)")
+        st.markdown(
+            "Choose a **month and day only** — no year. The model runs on every "
+            "matching date in the historical record: each year's forecast uses that "
+            "year's weather from the day before. You get a typical prediction plus "
+            "year-by-year actuals."
+        )
+
+        col_month, col_day = st.columns(2)
+        month = col_month.selectbox(
+            "Month",
+            options=list(range(1, 13)),
+            format_func=lambda m: calendar.month_name[m],
+            index=5,
+        )
+        max_day = calendar.monthrange(2000, month)[1]
+        day = col_day.number_input(
+            "Day",
+            min_value=1,
+            max_value=max_day,
+            value=min(25, max_day),
+            step=1,
+        )
+
+        label = f"{calendar.month_name[month]} {day}"
+        try:
+            by_year = calendar_day_predictions(weather, model, predictors, month, day)
+            pred_median = float(by_year["predicted_tmax"].median())
+            actual_mean = float(by_year["actual_tmax"].mean())
+            actual_median = float(by_year["actual_tmax"].median())
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Typical model prediction", display_temp(pred_median, unit))
+            m2.metric("Historical avg actual", display_temp(actual_mean, unit))
+            m3.metric("Historical median actual", display_temp(actual_median, unit))
+            m4.metric("Years in record", len(by_year))
+
+            display = by_year.copy()
+            if unit == "C":
+                display["predicted_tmax"] = display["predicted_tmax"].map(f_to_c)
+                display["actual_tmax"] = display["actual_tmax"].map(f_to_c)
+                display["error"] = display["error"] * 5.0 / 9.0
+
+            display = display.rename(
+                columns={
+                    "year": "Year",
+                    "predicted_tmax": f"Predicted TMAX (°{unit})",
+                    "actual_tmax": f"Actual TMAX (°{unit})",
+                    "prior_precip": "Prior-day precip (in)",
+                    "error": f"Abs error (°{unit})",
+                }
+            )
+            st.dataframe(display, use_container_width=True, hide_index=True)
+
+            fig_day = go.Figure()
+            fig_day.add_trace(
+                go.Bar(
+                    x=by_year["year"],
+                    y=by_year["actual_tmax"].map(
+                        lambda v: f_to_c(v) if unit == "C" else v
+                    ),
+                    name="Actual",
+                )
+            )
+            fig_day.add_trace(
+                go.Bar(
+                    x=by_year["year"],
+                    y=by_year["predicted_tmax"].map(
+                        lambda v: f_to_c(v) if unit == "C" else v
+                    ),
+                    name="Predicted",
+                )
+            )
+            fig_day.update_layout(
+                title=f"{label} — predicted vs actual by year",
+                barmode="group",
+                height=380,
+                yaxis_title=f"TMAX (°{unit})",
+                legend=dict(orientation="h"),
+            )
+            st.plotly_chart(fig_day, use_container_width=True)
         except ValueError as exc:
             st.warning(str(exc))
 
@@ -318,6 +493,135 @@ def main() -> None:
         annual.columns = ["year", "precip_inches"]
         fig_p = px.bar(annual.tail(40), x="year", y="precip_inches")
         st.plotly_chart(fig_p, use_container_width=True)
+
+    with tab_model:
+        st.subheader("Model card")
+        st.markdown(
+            f"A transparent summary of the **{city.name}** forecasting pipeline — "
+            "useful for demos, interviews, and reproducibility."
+        )
+
+        overview_left, overview_right = st.columns(2)
+        with overview_left:
+            st.markdown("#### Algorithm")
+            st.markdown(
+                f"- **Method:** {MODEL_ALGORITHM}\n"
+                f"- **Regularization (α):** {MODEL_ALPHA}\n"
+                f"- **Target:** {TARGET_VARIABLE}\n"
+                f"- **Intercept:** {metrics['intercept']:.3f}°F"
+            )
+            st.markdown("#### Train / test protocol")
+            st.markdown(
+                f"- **Train:** ≤ `{metrics['train_end']}` ({metrics['train_rows']:,} rows)\n"
+                f"- **Test:** ≥ `{metrics['test_start']}` ({metrics['test_rows']:,} rows)\n"
+                f"- **Split type:** Time-based (no random shuffle — avoids leakage)"
+            )
+        with overview_right:
+            st.markdown("#### Data source")
+            src = city.local_csv or f"NOAA GHCN `{city.noaa_station}`"
+            st.markdown(
+                f"- **City:** {city.name}\n"
+                f"- **Source:** {src}\n"
+                f"- **Coverage:** {weather.index.min().date()} → {weather.index.max().date()}\n"
+                f"- **Days:** {len(weather):,}"
+            )
+            st.markdown("#### Held-out accuracy")
+            st.markdown(
+                f"- **RMSE:** {rmse_display:.2f} °{unit}\n"
+                f"- **MAE:** {mae_display:.2f} °{unit}\n"
+                f"- **MSE:** {metrics['mse']:.2f} (°F²)"
+            )
+
+        st.markdown("#### Pipeline")
+        st.code(
+            "NOAA / local CSV  →  clean & forward-fill  →  engineer features\n"
+            "       →  Ridge(α=0.1)  →  next-day TMAX prediction  →  Streamlit UI / AI narrator",
+            language=None,
+        )
+
+        st.markdown("#### Feature dictionary")
+        feat_rows = [
+            {
+                "Feature": name,
+                "In model": name in predictors,
+                "Description": FEATURE_DOCS.get(name, "—"),
+                "Coefficient": metrics["coefficients"].get(name),
+            }
+            for name in FEATURE_DOCS
+        ]
+        st.dataframe(pd.DataFrame(feat_rows), use_container_width=True, hide_index=True)
+
+        st.markdown("#### Limitations")
+        st.info(generate_limitations_note())
+
+        if not all_metrics_df.empty:
+            st.markdown("#### All cities (test RMSE)")
+            compare = all_metrics_df.copy()
+            if unit == "C":
+                compare["rmse"] = compare["rmse"] * 5.0 / 9.0
+                compare["mae"] = compare["mae"] * 5.0 / 9.0
+            fig_all = px.bar(
+                compare,
+                x="city",
+                y="rmse",
+                title=f"Held-out RMSE by city (°{unit})",
+                labels={"rmse": f"RMSE (°{unit})", "city": "City"},
+            )
+            fig_all.update_layout(xaxis_tickangle=-30)
+            st.plotly_chart(fig_all, use_container_width=True)
+
+        st.markdown("#### Tech stack")
+        st.markdown(
+            "- **ML:** scikit-learn Ridge, pandas feature engineering\n"
+            "- **Data:** NOAA GHCN-Daily, bundled Oakland CSV\n"
+            "- **App:** Streamlit + Plotly\n"
+            "- **Insights:** Ridge contribution decomposition + narrative summaries"
+        )
+
+    with tab_ai:
+        st.subheader("Ask about the forecast")
+        st.markdown(
+            "Questions about the current city's prediction, model behavior, and accuracy."
+        )
+
+        briefing = explanation.ai_narrative or explanation.rule_narrative
+        st.success(briefing)
+        st.markdown(generate_model_summary(model_ctx))
+
+        st.markdown("##### Suggested questions")
+        qcols = st.columns(2)
+        picked: str | None = None
+        for i, question in enumerate(SUGGESTED_QUESTIONS):
+            if qcols[i % 2].button(question, key=f"suggest_{i}"):
+                picked = question
+
+        if "ai_messages" not in st.session_state:
+            st.session_state.ai_messages = []
+
+        user_q = st.chat_input("Ask about the forecast or model…")
+        if picked:
+            user_q = picked
+
+        def respond(question: str) -> str:
+            chat_ctx = dict(model_ctx)
+            if all_metrics_list:
+                chat_ctx["all_cities_metrics"] = all_metrics_list
+            if provider_id != "rules" and llm_key:
+                try:
+                    return chat_with_provider(
+                        provider_id, question, chat_ctx, llm_key, mode="chat"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return answer_with_rules(question, chat_ctx, all_metrics_list)
+
+        if user_q:
+            st.session_state.ai_messages.append({"role": "user", "content": user_q})
+            st.session_state.ai_messages.append({"role": "assistant", "content": respond(user_q)})
+
+        for msg in st.session_state.ai_messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
 
 
 if __name__ == "__main__":

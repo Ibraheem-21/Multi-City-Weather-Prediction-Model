@@ -54,6 +54,8 @@ Notes:
 - **Test performance** (actual vs predicted, RMSE / MAE, worst misses)
 - **Insights** (coefficients, correlations)
 - **History** charts
+- **About the Model** — full model card and city comparison
+- **Ask** — chat about forecasts and model behavior
 
 ## Project layout
 

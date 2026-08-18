@@ -55,3 +55,26 @@ def prediction_features_from_history(core_weather: pd.DataFrame) -> pd.Series:
     if row[ENGINEERED_PREDICTORS].isna().any():
         raise ValueError("Could not engineer features for the latest day.")
     return row
+
+
+def prediction_features_for_target_date(
+    core_weather: pd.DataFrame,
+    target_date: pd.Timestamp,
+) -> tuple[pd.Series, pd.Timestamp]:
+    """
+    Build predictors to forecast TMAX on target_date.
+
+    Uses weather through the prior calendar day (model predicts next-day max).
+    Returns the feature row and the prior date whose conditions were used.
+    """
+    target = pd.Timestamp(target_date).normalize()
+    prior = target - pd.Timedelta(days=1)
+    history = core_weather.loc[:prior]
+    if history.empty or prior not in history.index:
+        raise ValueError(
+            f"No weather for {prior.date()}, the day before {target.date()}. "
+            "Pick a date within the dataset range (plus one day after the last row)."
+        )
+    row = prediction_features_from_history(history.tail(40))
+    return row, prior
+
